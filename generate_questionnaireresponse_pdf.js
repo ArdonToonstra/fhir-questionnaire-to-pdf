@@ -63,10 +63,21 @@ function normalizeFHIRData(jsonData) {
     if (jsonData.resourceType === 'Bundle' && jsonData.entry) resources = jsonData.entry.map(e => e.resource).filter(r => r);
     else resources = [jsonData];
 
-    const patient = resources.find(r => r.resourceType === 'Patient') || { resourceType: "Patient", name: [{ family: "Unknown" }] };
-    const encounter = resources.find(r => r.resourceType === 'Encounter') || { resourceType: "Encounter", class: { display: "Unknown" } };
-    const qResponse = resources.find(r => r.resourceType === 'QuestionnaireResponse');
+    let patient = resources.find(r => r.resourceType === 'Patient');
+    let carePlan = resources.find(r => r.resourceType === 'CarePlan');
+    const questionnaireResponses = resources.filter(r => r.resourceType === 'QuestionnaireResponse');
+    const qResponse = questionnaireResponses[0]; // Use first QR for backwards compatibility
     let questionnaire = resources.find(r => r.resourceType === 'Questionnaire');
+
+    // If no Patient resource found in Bundle, create a placeholder that will trigger QR fallback
+    if (!patient) {
+        patient = { resourceType: "Patient", name: null }; // null name will trigger QR fallback
+    }
+    
+    // If no CarePlan resource found in Bundle, create a placeholder
+    if (!carePlan) {
+        carePlan = { resourceType: "CarePlan", category: null }; // null category will trigger fallback
+    }
 
     if (!questionnaire && qResponse && qResponse.questionnaire) {
         const ref = qResponse.questionnaire;
@@ -78,7 +89,15 @@ function normalizeFHIRData(jsonData) {
         // Return minimal stub to allow processing to continue (Sanitizer will log warnings)
         questionnaire = { resourceType: "Questionnaire", status: "active", item: [] };
     }
-    return { fileName: jsonData.id || 'report', patient, encounter, questionnaire, questionnaireResponse: qResponse };
+    
+    return { 
+        fileName: jsonData.id || 'report', 
+        patient, 
+        carePlan, 
+        questionnaire, 
+        questionnaireResponse: qResponse,
+        questionnaireResponses // Include all QRs for potential future use
+    };
 }
 
 (async () => {

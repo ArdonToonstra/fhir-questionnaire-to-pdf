@@ -37,15 +37,14 @@
         </div>
 
         <div id="enrichment-section" class="mb-8 bg-slate-50 p-6 rounded-lg border border-slate-100">
-            <div class="grid grid-cols-4 gap-6">
+            <div class="grid grid-cols-3 gap-6">
                 <div><div class="fhir-header-label">Patient</div><div class="fhir-header-value" id="pt-name">--</div></div>
                 <div><div class="fhir-header-label">DOB</div><div class="fhir-header-value" id="pt-dob">--</div></div>
                 <div><div class="fhir-header-label">MRN</div><div class="fhir-header-value" id="pt-mrn">--</div></div>
-                <div><div class="fhir-header-label">Encounter</div><div class="fhir-header-value" id="enc-type">--</div></div>
             </div>
             <div class="mt-4 pt-4 border-t border-slate-200 grid grid-cols-2 gap-6">
-                 <div><div class="fhir-header-label">Practitioner</div><div class="fhir-header-value" id="enc-practitioner">--</div></div>
-                <div><div class="fhir-header-label">Location</div><div class="fhir-header-value" id="enc-loc">--</div></div>
+                 <div><div class="fhir-header-label">Care Plan</div><div class="fhir-header-value" id="care-plan">--</div></div>
+                <div><div class="fhir-header-label">Author</div><div class="fhir-header-value" id="care-author">--</div></div>
             </div>
         </div>
 
@@ -121,20 +120,60 @@
 
         function renderFromData(data) {
             try {
-                // 1. Header
+                // 1. Header - Extract info from Bundle or QuestionnaireResponse
                 const p = data.patient || {};
-                const nameObj = (p.name && p.name[0]) || {};
-                const given = nameObj.given ? nameObj.given.join(' ') : '';
-                const family = nameObj.family || 'Unknown';
+                const qr = data.questionnaireResponse || {};
+                const cp = data.carePlan || {};
                 
-                document.getElementById('pt-name').innerText = `${given} ${family}`;
-                document.getElementById('pt-dob').innerText = p.birthDate || 'N/A';
-                document.getElementById('pt-mrn').innerText = getSafe(() => p.identifier[0].value, 'N/A');
+                // Patient info - try Bundle first, then QR
+                let patientName = 'N/A';
+                let patientDob = 'N/A';
+                let patientMrn = 'N/A';
+                
+                if (p.name && p.name[0]) {
+                    // From Bundle Patient resource
+                    const nameObj = p.name[0];
+                    const given = nameObj.given ? nameObj.given.join(' ') : '';
+                    const family = nameObj.family || '';
+                    patientName = `${given} ${family}`.trim() || 'Unknown';
+                    patientDob = p.birthDate || 'N/A';
+                    patientMrn = getSafe(() => p.identifier[0].value, 'N/A');
+                } else if (qr.subject) {
+                    // From QuestionnaireResponse subject
+                    patientName = qr.subject.display || qr.subject.reference || 'Unknown Patient';
+                    // Try to extract additional QR metadata
+                    patientDob = getSafe(() => qr.meta.lastUpdated ? new Date(qr.meta.lastUpdated).toLocaleDateString() : 'N/A', 'N/A');
+                    patientMrn = getSafe(() => qr.subject.identifier ? qr.subject.identifier.value : 'N/A', 'N/A');
+                }
+                
+                document.getElementById('pt-name').innerText = patientName;
+                document.getElementById('pt-dob').innerText = patientDob;
+                document.getElementById('pt-mrn').innerText = patientMrn;
 
-                const enc = data.encounter || {};
-                document.getElementById('enc-type').innerText = getSafe(() => enc.class.display, 'N/A');
-                document.getElementById('enc-practitioner').innerText = getSafe(() => enc.participant[0].individual.display, 'N/A');
-                document.getElementById('enc-loc').innerText = getSafe(() => enc.location[0].location.display, 'N/A');
+                // CarePlan info - try Bundle first, then QR
+                let carePlanInfo = 'N/A';
+                let author = 'N/A';
+                
+                if (cp.category && cp.category.length > 0) {
+                    // From Bundle CarePlan resource - extract category codes and displays
+                    const categories = cp.category.map(cat => {
+                        if (cat.coding && cat.coding.length > 0) {
+                            return cat.coding.map(coding => 
+                                `${coding.display || coding.code}${coding.code ? ` (${coding.code})` : ''}`
+                            ).join(', ');
+                        }
+                        return 'Unknown Category';
+                    }).join('; ');
+                    carePlanInfo = categories;
+                    author = getSafe(() => cp.author.display || cp.author.reference, 'N/A');
+                } else {
+                    // From QuestionnaireResponse fallback
+                    carePlanInfo = qr.questionnaire ? qr.questionnaire.split('/').pop().split('|')[0] : 'N/A';
+                    author = getSafe(() => qr.author.display || qr.author.reference, 'N/A');
+                }
+                
+                document.getElementById('care-plan').innerText = carePlanInfo;
+                document.getElementById('care-author').innerText = author;
 
                 if (!window.LForms) throw new Error("LForms library not loaded");
 
