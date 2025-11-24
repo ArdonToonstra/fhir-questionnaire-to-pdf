@@ -134,8 +134,12 @@ function normalizeFHIRData(jsonData) {
             try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
             catch (e) { log("Render timeout.", 'ERROR'); continue; }
 
-            let outName = processedData.fileName !== 'report' ? processedData.fileName : file.replace('.json', '');
-            outName = outName.replace(/[^a-z0-9\-_]/gi, '_').toLowerCase();
+            // Use the original filename (without .json extension) as the base for the PDF name
+            let outName = file.replace('.json', '');
+            // Clean up the filename: replace invalid characters with dashes, convert to lowercase
+            outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
+            // Remove multiple consecutive dashes and trim
+            outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
             
             await page.pdf({
                 path: path.join(OUTPUT_DIR, `${outName}.pdf`),
