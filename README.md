@@ -6,8 +6,11 @@ This tool automates the generation of PDF medical reports from FHIR Questionnair
 
 - **Offline Ready**: Runs entirely locally without needing to connect to external FHIR servers.
 - **Batch Processing**: Converts an entire folder of FHIR Bundles or JSON files into PDFs in seconds.
+- **Multiple QuestionnaireResponse Support**: Combines multiple questionnaires from the same Bundle into a single PDF with clear section separation.
+- **Smart Data Extraction**: Automatically extracts patient information from Bundle resources or falls back to QuestionnaireResponse metadata.
+- **CarePlan Integration**: Displays CarePlan categories with codes and clinical context in the report header.
 - **Crash Protection**: Automatically sanitizes mismatched data to prevent rendering failures.
-- **Data Enrichment**: Injects Patient, Encounter, and Practitioner details into the report header.
+- **Enhanced Text Wrapping**: Ensures long answer text displays properly across multiple lines.
 
 ## Installation
 
@@ -39,7 +42,10 @@ node download_assets.js
 When you first clone this repo, these folders will be empty. You need to populate them:
 
 - **questionnaires/**: (Required) Place your FHIR Questionnaire, ValueSet, and CodeSystem JSON files here.
-- **input/**: (Required) Place your patient data files here (FHIR Bundles or QuestionnaireResponses).
+- **input/**: (Required) Place your patient data files here:
+  - FHIR Bundles containing Patient, CarePlan, and QuestionnaireResponse resources
+  - Standalone QuestionnaireResponse JSON files
+  - Supports multiple QuestionnaireResponses per Bundle
 - **output/**: (Generated) The resulting PDF reports and logs will appear here.
 
 ## Workflow
@@ -95,8 +101,11 @@ This script scans your `/questionnaires` folder, finds every `answerValueSet` re
 **Purpose**: The main orchestration engine.
 
 - Launches a headless Chrome browser (Puppeteer).
-- Reads every file in `/input`.
-- Injects the data and the LForms library into a template HTML page.
+- Reads every file in `/input` and processes all QuestionnaireResponses.
+- **Multi-QR Processing**: Combines multiple QuestionnaireResponses from the same Bundle into sections within a single PDF.
+- **Smart Data Extraction**: Extracts patient info from Patient resources or falls back to QuestionnaireResponse subject data.
+- **CarePlan Integration**: Displays CarePlan categories with clinical codes in the report header.
+- **Enhanced Template**: Injects data and LForms library into a responsive template with improved text wrapping.
 - **Sanitizes Data**: Removes answers that don't exist in the definition to prevent crashes.
 - **Normalizes Data**: Fixes minor mismatches (like http vs https system URLs) so answers don't disappear.
 - Prints the final rendered page as a PDF to `/output`.
@@ -149,3 +158,42 @@ graph TD
         GEN -->|Write logs| LOG["/output/log.txt"]
     end
 ```
+
+## Input File Types Supported
+
+### FHIR Bundles
+- **Complete Clinical Context**: Bundles with Patient, CarePlan, and QuestionnaireResponse resources
+- **Multiple Questionnaires**: Supports multiple QuestionnaireResponses per Bundle (combined into one PDF)
+- **Rich Headers**: Extracts patient demographics, CarePlan categories with codes, and clinical context
+
+### Standalone QuestionnaireResponse Files  
+- **Minimal Context**: Uses QuestionnaireResponse subject, author, and metadata for header information
+- **Fallback Data**: Displays subject.display or subject.reference as patient name
+- **Single Questionnaire**: Each file produces one PDF section
+
+## PDF Output Examples
+
+### Bundle with Multiple QuestionnaireResponses
+```
+Patient: Alice Jones | DOB: 1980-09-13 | MRN: A000003
+Care Plan: Cancer pathway - myeloma (CMY); Medical oncology (394593009)
+Author: Consultant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EQ-5D-5L Questionnaire
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Questionnaire 1 with patient responses]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Data Entry Questionnaire
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Questionnaire 2 with patient responses]
+```
+
+## Troubleshooting
+
+- **"LForms library not loaded"**: Run `node download_assets.js`.
+- **"Definition not found"**: Ensure the Questionnaire URL in your Response matches a file in `/questionnaires`.
+- **Invisible Answers / Missing Dropdowns**: Ensure you ran `node expand_definitions.js` to bake the ValueSet options into the form.
+- **Text Truncation**: The tool automatically handles long answer text with enhanced wrapping - no additional configuration needed.
+- **Multiple QRs not showing**: Check that your Bundle contains multiple QuestionnaireResponse resources - they will be combined automatically.
