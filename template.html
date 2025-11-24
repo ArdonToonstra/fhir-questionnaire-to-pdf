@@ -4,7 +4,66 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FHIR Report Template</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+    
+    <!-- Inline essential Tailwind-like styles for security -->
+    <style>
+        .bg-gray-100 { background-color: #f3f4f6; }
+        .min-h-screen { min-height: 100vh; }
+        .p-8 { padding: 2rem; }
+        .font-sans { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+        .text-slate-800 { color: #1e293b; }
+        .max-w-4xl { max-width: 56rem; }
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        .bg-white { background-color: #ffffff; }
+        .p-12 { padding: 3rem; }
+        .rounded-xl { border-radius: 0.75rem; }
+        .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .border { border-width: 1px; }
+        .border-gray-100 { border-color: #f3f4f6; }
+        .border-b-2 { border-bottom-width: 2px; }
+        .border-slate-100 { border-color: #f1f5f9; }
+        .pb-6 { padding-bottom: 1.5rem; }
+        .mb-8 { margin-bottom: 2rem; }
+        .flex { display: flex; }
+        .justify-between { justify-content: space-between; }
+        .items-start { align-items: flex-start; }
+        .items-center { align-items: center; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-6 { gap: 1.5rem; }
+        .w-10 { width: 2.5rem; }
+        .h-10 { height: 2.5rem; }
+        .bg-blue-600 { background-color: #2563eb; }
+        .rounded { border-radius: 0.25rem; }
+        .text-white { color: #ffffff; }
+        .font-bold { font-weight: 700; }
+        .text-xl { font-size: 1.25rem; }
+        .text-2xl { font-size: 1.5rem; }
+        .text-slate-800 { color: #1e293b; }
+        .text-right { text-align: right; }
+        .mr-4 { margin-right: 1rem; }
+        .text-sm { font-size: 0.875rem; }
+        .text-gray-500 { color: #6b7280; }
+        .font-medium { font-weight: 500; }
+        .bg-slate-50 { background-color: #f8fafc; }
+        .p-6 { padding: 1.5rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .border-slate-100 { border-color: #f1f5f9; }
+        .grid { display: grid; }
+        .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .mt-4 { margin-top: 1rem; }
+        .pt-4 { padding-top: 1rem; }
+        .border-t { border-top-width: 1px; }
+        .border-slate-200 { border-color: #e2e8f0; }
+        .mb-4 { margin-bottom: 1rem; }
+        .pb-2 { padding-bottom: 0.5rem; }
+        .border-b { border-bottom-width: 1px; }
+        .text-lg { font-size: 1.125rem; }
+        .font-semibold { font-weight: 600; }
+        .text-slate-700 { color: #334155; }
+        .questionnaire-section { margin-bottom: 2rem; }
+    </style>
 
     <!-- LForms scripts are INJECTED by generate_reports.js -->
 

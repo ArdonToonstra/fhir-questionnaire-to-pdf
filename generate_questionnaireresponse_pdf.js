@@ -30,6 +30,48 @@ function log(message, type = 'INFO') {
     try { fs.appendFileSync(LOG_FILE, fileMsg); } catch (e) {}
 }
 
+// --- SECURITY & VALIDATION ---
+function validateJsonFile(filePath) {
+    const stats = fs.statSync(filePath);
+    const maxSize = 50 * 1024 * 1024; // 50MB limit
+    
+    if (stats.size > maxSize) {
+        throw new Error(`File ${path.basename(filePath)} exceeds maximum size of ${maxSize / (1024 * 1024)}MB`);
+    }
+    
+    if (stats.size === 0) {
+        throw new Error(`File ${path.basename(filePath)} is empty`);
+    }
+}
+
+function sanitizeFilename(filename) {
+    // Remove file extension first
+    const nameWithoutExt = filename.replace(/\.json$/, '');
+    
+    // Replace invalid characters with dashes and convert to lowercase
+    let cleaned = nameWithoutExt.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase();
+    
+    // Remove multiple consecutive dashes and trim
+    cleaned = cleaned.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    
+    // Ensure filename is not empty and not too long
+    if (!cleaned || cleaned.length === 0) {
+        cleaned = 'unnamed-file';
+    }
+    
+    if (cleaned.length > 100) {
+        cleaned = cleaned.substring(0, 100).replace(/-+$/, '');
+    }
+    
+    // Validate final filename
+    const allowedPattern = /^[a-zA-Z0-9._-]+$/;
+    if (!allowedPattern.test(cleaned)) {
+        throw new Error(`Invalid filename after sanitization: ${cleaned}`);
+    }
+    
+    return cleaned;
+}
+
 // --- LOADERS ---
 const questionnaireMap = new Map();
 
@@ -44,7 +86,17 @@ function loadLibraries() {
 
     files.forEach(file => {
         try {
-            const raw = fs.readFileSync(path.join(QUESTIONNAIRE_DIR, file), 'utf8');
+            const filePath = path.join(QUESTIONNAIRE_DIR, file);
+            
+            // Validate questionnaire file
+            try {
+                validateJsonFile(filePath);
+            } catch (e) {
+                log(`Skipping invalid file ${file}: ${e.message}`, 'WARN');
+                return;
+            }
+            
+            const raw = fs.readFileSync(filePath, 'utf8');
             const json = JSON.parse(raw);
             
             const items = json.resourceType === 'Bundle' && json.entry ? json.entry.map(e => e.resource) : [json];
@@ -112,7 +164,15 @@ function normalizeFHIRData(jsonData) {
     console.log("🚀 Starting FHIR PDF Generator...");
     loadLibraries();
 
-    const browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox'] });
+    const browser = await puppeteer.launch({ 
+        headless: "new", 
+        args: [
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor', 
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
+    });
     const page = await browser.newPage();
     
     page.on('console', async msg => {
@@ -129,7 +189,12 @@ function normalizeFHIRData(jsonData) {
 
     for (const file of files) {
         try {
-            const rawJson = JSON.parse(fs.readFileSync(path.join(INPUT_DIR, file), 'utf8'));
+            const filePath = path.join(INPUT_DIR, file);
+            
+            // Security: Validate file before processing
+            validateJsonFile(filePath);
+            
+            const rawJson = JSON.parse(fs.readFileSync(filePath, 'utf8'));
             log(`Processing: ${file}`, 'HEADER');
             
             const processedData = normalizeFHIRData(rawJson);
@@ -185,12 +250,8 @@ function normalizeFHIRData(jsonData) {
             try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
             catch (e) { log("Render timeout.", 'ERROR'); continue; }
 
-            // Generate filename
-            let outName = file.replace('.json', '');
-            // Clean up the filename: replace invalid characters with dashes, convert to lowercase
-            outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
-            // Remove multiple consecutive dashes and trim
-            outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+            // Generate secure filename
+            const outName = sanitizeFilename(file);
             
             await page.pdf({
                 path: path.join(OUTPUT_DIR, `${outName}.pdf`),
@@ -202,7 +263,11 @@ function normalizeFHIRData(jsonData) {
             log(`Saved: ${outName}.pdf (${combinedQRData.length} questionnaire${combinedQRData.length > 1 ? 's' : ''})`, 'SUCCESS');
 
         } catch (error) {
-            log(`System Error: ${error.message}`, 'ERROR');
+            // Security: Limit error information disclosure
+            const sanitizedError = error.message.length > 200 ? 
+                error.message.substring(0, 200) + '... (truncated)' : 
+                error.message;
+            log(`System Error processing ${file}: ${sanitizedError}`, 'ERROR');
         }
     }
 

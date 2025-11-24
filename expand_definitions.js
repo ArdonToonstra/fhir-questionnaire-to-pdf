@@ -19,7 +19,22 @@ function loadResources() {
 
     files.forEach(file => {
         try {
-            const raw = fs.readFileSync(path.join(SOURCE_DIR, file), 'utf8');
+            const filePath = path.join(SOURCE_DIR, file);
+            
+            // Security: Validate file size
+            const stats = fs.statSync(filePath);
+            const maxSize = 25 * 1024 * 1024; // 25MB limit
+            if (stats.size > maxSize) {
+                console.warn(`   ⚠️ Skipping ${file}: file too large (${stats.size} bytes)`);
+                return;
+            }
+            
+            if (stats.size === 0) {
+                console.warn(`   ⚠️ Skipping ${file}: empty file`);
+                return;
+            }
+            
+            const raw = fs.readFileSync(filePath, 'utf8');
             const json = JSON.parse(raw);
             const items = json.resourceType === 'Bundle' && json.entry ? json.entry.map(e => e.resource) : [json];
 
@@ -119,6 +134,14 @@ function expandAll() {
     files.forEach(file => {
         try {
             const filePath = path.join(SOURCE_DIR, file);
+            
+            // Security: Validate file before processing
+            const stats = fs.statSync(filePath);
+            if (stats.size > 25 * 1024 * 1024) { // 25MB limit
+                console.error(`Error processing ${file}: file too large`);
+                return;
+            }
+            
             const raw = fs.readFileSync(filePath, 'utf8');
             const json = JSON.parse(raw);
             
@@ -143,7 +166,11 @@ function expandAll() {
                 }
             }
         } catch (e) {
-            console.error(`Error processing ${file}: ${e.message}`);
+            // Security: Limit error information disclosure
+            const sanitizedError = e.message.length > 150 ? 
+                e.message.substring(0, 150) + '... (truncated)' : 
+                e.message;
+            console.error(`Error processing ${file}: ${sanitizedError}`);
         }
     });
 

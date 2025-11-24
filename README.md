@@ -11,6 +11,8 @@ This tool automates the generation of PDF medical reports from FHIR Questionnair
 - **CarePlan Integration**: Displays CarePlan categories with codes and clinical context in the report header.
 - **Crash Protection**: Automatically sanitizes mismatched data to prevent rendering failures.
 - **Enhanced Text Wrapping**: Ensures long answer text displays properly across multiple lines.
+- **Security Hardened**: Input validation, file size limits, CSP headers, and secure browser execution.
+- **Content Validation**: Validates JSON structure and file integrity before processing.
 
 ## Installation
 
