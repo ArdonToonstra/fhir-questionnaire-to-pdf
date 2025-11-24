@@ -1,3 +1,10 @@
+input/*.json
+input/*.xml
+output/ 
+# 
+questionnaires/*.json
+questionnaires/*.xml
+
 # Logs
 logs
 *.log

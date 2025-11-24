@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FHIR Report Template</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- LForms scripts are INJECTED by generate_reports.js -->
+
+    <style>
+        @media print {
+            body { background-color: white; padding: 0; margin: 0; }
+            .no-print { display: none !important; }
+            #report-container { box-shadow: none; border: none; max-width: 100%; margin: 0; padding: 0; }
+            .lforms-form-control { border: none !important; background: none !important; }
+        }
+        .fhir-header-label { font-size: 0.75rem; text-transform: uppercase; color: #6b7280; font-weight: 600; }
+        .fhir-header-value { font-size: 1rem; color: #111827; font-weight: 500; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-8 font-sans text-slate-800">
+
+    <div id="report-container" class="max-w-4xl mx-auto bg-white p-12 rounded-xl shadow-lg border border-gray-100">
+        
+        <div class="border-b-2 border-slate-100 pb-6 mb-8 flex justify-between items-start">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded flex items-center justify-center text-white font-bold text-xl">MD</div>
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">Medical Report</h2>
+                    <p class="text-slate-500 text-sm">FHIR QuestionnaireResponse</p>
+                </div>
+            </div>
+            <div class="text-right">
+                <div class="text-sm text-gray-500">Date</div>
+                <div class="font-medium text-slate-800" id="reportDate"></div>
+            </div>
+        </div>
+
+        <div id="enrichment-section" class="mb-8 bg-slate-50 p-6 rounded-lg border border-slate-100">
+            <div class="grid grid-cols-4 gap-6">
+                <div><div class="fhir-header-label">Patient</div><div class="fhir-header-value" id="pt-name">--</div></div>
+                <div><div class="fhir-header-label">DOB</div><div class="fhir-header-value" id="pt-dob">--</div></div>
+                <div><div class="fhir-header-label">MRN</div><div class="fhir-header-value" id="pt-mrn">--</div></div>
+                <div><div class="fhir-header-label">Encounter</div><div class="fhir-header-value" id="enc-type">--</div></div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-slate-200 grid grid-cols-2 gap-6">
+                 <div><div class="fhir-header-label">Practitioner</div><div class="fhir-header-value" id="enc-practitioner">--</div></div>
+                <div><div class="fhir-header-label">Location</div><div class="fhir-header-value" id="enc-loc">--</div></div>
+            </div>
+        </div>
+
+        <div id="lforms-container">Loading...</div>
+
+    </div>
+
+    <script>
+        function getSafe(fn, defaultVal) {
+            try { return fn(); } catch (e) { return defaultVal; }
+        }
+
+        window.onload = function() {
+            document.getElementById('reportDate').innerText = new Date().toLocaleDateString();
+        };
+
+        // --- 1. SANITIZER (Removes orphans to prevent Crash) ---
+        function sanitizeResponse(qItems, respItem) {
+            if (!respItem) return null;
+            if (!qItems) return null; 
+            const validItems = [];
+            respItem.forEach(rItem => {
+                const def = qItems.find(q => q.linkId === rItem.linkId);
+                if (def) {
+                    if (rItem.item && rItem.item.length > 0) {
+                        const cleanedChildren = sanitizeResponse(def.item, rItem.item);
+                        if (cleanedChildren && cleanedChildren.length > 0) rItem.item = cleanedChildren;
+                        else delete rItem.item; 
+                    }
+                    validItems.push(rItem);
+                }
+            });
+            return validItems;
+        }
+
+        // --- 2. NORMALIZER (Fixes Invisible Answers) ---
+        // If code matches but system/display is different, assume it's the same answer.
+        function normalizeAnswers(qItems, respItem) {
+            if (!respItem || !qItems) return;
+
+            respItem.forEach(rItem => {
+                const def = qItems.find(q => q.linkId === rItem.linkId);
+                if (def) {
+                    // If Definition has options, check if our answer needs aligning
+                    if (def.answerOption && rItem.answer) {
+                        rItem.answer.forEach(ans => {
+                            if (ans.valueCoding) {
+                                // Find match in Definition options by CODE only
+                                const match = def.answerOption.find(opt => 
+                                    opt.valueCoding && opt.valueCoding.code === ans.valueCoding.code
+                                );
+                                
+                                if (match) {
+                                    // 1. Fix System Mismatch (e.g. http vs https)
+                                    if (ans.valueCoding.system !== match.valueCoding.system) {
+                                        console.log(`[Normalizer] Fixed System: ${rItem.linkId} (${ans.valueCoding.system} -> ${match.valueCoding.system})`);
+                                        ans.valueCoding.system = match.valueCoding.system;
+                                    }
+                                    // 2. Fix Missing/Different Display (Helps LForms render label)
+                                    if (match.valueCoding.display) {
+                                        ans.valueCoding.display = match.valueCoding.display;
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // Recurse
+                    if (rItem.item) normalizeAnswers(def.item, rItem.item);
+                }
+            });
+        }
+
+        function renderFromData(data) {
+            try {
+                // 1. Header
+                const p = data.patient || {};
+                const nameObj = (p.name && p.name[0]) || {};
+                const given = nameObj.given ? nameObj.given.join(' ') : '';
+                const family = nameObj.family || 'Unknown';
+                
+                document.getElementById('pt-name').innerText = `${given} ${family}`;
+                document.getElementById('pt-dob').innerText = p.birthDate || 'N/A';
+                document.getElementById('pt-mrn').innerText = getSafe(() => p.identifier[0].value, 'N/A');
+
+                const enc = data.encounter || {};
+                document.getElementById('enc-type').innerText = getSafe(() => enc.class.display, 'N/A');
+                document.getElementById('enc-practitioner').innerText = getSafe(() => enc.participant[0].individual.display, 'N/A');
+                document.getElementById('enc-loc').innerText = getSafe(() => enc.location[0].location.display, 'N/A');
+
+                if (!window.LForms) throw new Error("LForms library not loaded");
+
+                const formDef = LForms.Util.convertFHIRQuestionnaireToLForms(data.questionnaire, "R4");
+                
+                // --- DATA PRE-PROCESSING ---
+                if (data.questionnaireResponse && data.questionnaireResponse.item) {
+                    // 1. Sanitize (Prevents Crash)
+                    data.questionnaireResponse.item = sanitizeResponse(
+                        data.questionnaire.item, 
+                        data.questionnaireResponse.item
+                    );
+                    
+                    // 2. Normalize (Prevents Invisible Answers)
+                    normalizeAnswers(
+                        data.questionnaire.item,
+                        data.questionnaireResponse.item
+                    );
+                }
+                // ---------------------------
+
+                const formWithData = LForms.Util.mergeFHIRDataIntoLForms("QuestionnaireResponse", data.questionnaireResponse, formDef, "R4");
+                LForms.Util.addFormToPage(formWithData, 'lforms-container', { preloading: false });
+
+            } catch (e) {
+                var msg = e.toString();
+                if (e.message) msg = e.message;
+                console.error("LFORMS_CRASH: " + msg);
+                const errDiv = document.createElement('div');
+                errDiv.id = 'render-error';
+                errDiv.innerText = "Error: " + msg;
+                document.body.appendChild(errDiv);
+            }
+            
+            setTimeout(() => {
+                const doneDiv = document.createElement('div');
+                doneDiv.id = 'render-complete';
+                document.body.appendChild(doneDiv);
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
