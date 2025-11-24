@@ -134,40 +134,74 @@ function normalizeFHIRData(jsonData) {
             
             const processedData = normalizeFHIRData(rawJson);
 
-            if (!processedData.questionnaireResponse) {
+            if (!processedData.questionnaireResponses || processedData.questionnaireResponses.length === 0) {
                 log("Skipping: No QuestionnaireResponse found.", 'WARN');
                 continue;
             }
 
-            await page.goto(`file://${TEMPLATE_PATH}`, { waitUntil: 'domcontentloaded' });
-            
-            await page.addStyleTag({ path: path.join(ASSETS_DIR, 'lhc-forms.css') });
-            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'zone.min.js') });
-            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lhc-forms.js') });
-            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lformsFHIR.min.js') });
+            // Process each QuestionnaireResponse separately
+            for (let i = 0; i < processedData.questionnaireResponses.length; i++) {
+                const currentQR = processedData.questionnaireResponses[i];
+                log(`  Processing QR ${i + 1}/${processedData.questionnaireResponses.length}: ${currentQR.questionnaire}`, 'INFO');
 
-            try { await page.waitForFunction(() => window.LForms, { timeout: 3000 }); } catch (e) {}
+                // Find the appropriate questionnaire for this QR
+                let questionnaire = null;
+                if (currentQR.questionnaire) {
+                    const ref = currentQR.questionnaire;
+                    questionnaire = questionnaireMap.get(ref) || questionnaireMap.get(ref.split('|')[0]);
+                }
 
-            await page.evaluate((data) => { window.renderFromData(data); }, processedData);
+                if (!questionnaire) {
+                    log(`  Definition not found for ${currentQR.questionnaire}`, 'WARN');
+                    questionnaire = { resourceType: "Questionnaire", status: "active", item: [] };
+                }
 
-            try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
-            catch (e) { log("Render timeout.", 'ERROR'); continue; }
+                // Create processed data for this specific QR
+                const qrSpecificData = {
+                    ...processedData,
+                    questionnaireResponse: currentQR,
+                    questionnaire: questionnaire
+                };
 
-            // Use the original filename (without .json extension) as the base for the PDF name
-            let outName = file.replace('.json', '');
-            // Clean up the filename: replace invalid characters with dashes, convert to lowercase
-            outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
-            // Remove multiple consecutive dashes and trim
-            outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-            
-            await page.pdf({
-                path: path.join(OUTPUT_DIR, `${outName}.pdf`),
-                format: 'A4',
-                printBackground: true,
-                margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
-            });
+                await page.goto(`file://${TEMPLATE_PATH}`, { waitUntil: 'domcontentloaded' });
+                
+                await page.addStyleTag({ path: path.join(ASSETS_DIR, 'lhc-forms.css') });
+                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'zone.min.js') });
+                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lhc-forms.js') });
+                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lformsFHIR.min.js') });
 
-            log(`Saved: ${outName}.pdf`, 'SUCCESS');
+                try { await page.waitForFunction(() => window.LForms, { timeout: 3000 }); } catch (e) {}
+
+                await page.evaluate((data) => { window.renderFromData(data); }, qrSpecificData);
+
+                try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
+                catch (e) { log("  Render timeout.", 'ERROR'); continue; }
+
+                // Generate unique filename for each QR
+                let outName = file.replace('.json', '');
+                // Clean up the filename: replace invalid characters with dashes, convert to lowercase
+                outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
+                // Remove multiple consecutive dashes and trim
+                outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+                
+                // Add QR suffix if multiple QRs exist
+                if (processedData.questionnaireResponses.length > 1) {
+                    // Try to use questionnaire name for better identification
+                    const qName = currentQR.questionnaire ? 
+                        currentQR.questionnaire.split('/').pop().split('|')[0].toLowerCase() : 
+                        `qr${i + 1}`;
+                    outName = `${outName}-${qName.replace(/[^a-zA-Z0-9\-_]/g, '-')}`;
+                }
+                
+                await page.pdf({
+                    path: path.join(OUTPUT_DIR, `${outName}.pdf`),
+                    format: 'A4',
+                    printBackground: true,
+                    margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+                });
+
+                log(`  Saved: ${outName}.pdf`, 'SUCCESS');
+            }
 
         } catch (error) {
             log(`System Error: ${error.message}`, 'ERROR');
