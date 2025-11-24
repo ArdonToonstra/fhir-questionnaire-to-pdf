@@ -177,26 +177,74 @@
 
                 if (!window.LForms) throw new Error("LForms library not loaded");
 
-                const formDef = LForms.Util.convertFHIRQuestionnaireToLForms(data.questionnaire, "R4");
-                
-                // --- DATA PRE-PROCESSING ---
-                if (data.questionnaireResponse && data.questionnaireResponse.item) {
-                    // 1. Sanitize (Prevents Crash)
-                    data.questionnaireResponse.item = sanitizeResponse(
-                        data.questionnaire.item, 
-                        data.questionnaireResponse.item
-                    );
+                // Handle multiple questionnaires or single questionnaire
+                if (data.combinedQuestionnaires && data.combinedQuestionnaires.length > 0) {
+                    // Multiple questionnaires - render each in its own section
+                    let combinedHTML = '';
                     
-                    // 2. Normalize (Prevents Invisible Answers)
-                    normalizeAnswers(
-                        data.questionnaire.item,
-                        data.questionnaireResponse.item
-                    );
-                }
-                // ---------------------------
+                    data.combinedQuestionnaires.forEach((qrData, index) => {
+                        const sectionId = `lforms-section-${index}`;
+                        combinedHTML += `
+                            <div class="questionnaire-section mb-8">
+                                <h3 class="text-lg font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-200">
+                                    ${qrData.title}
+                                </h3>
+                                <div id="${sectionId}"></div>
+                            </div>
+                        `;
+                    });
+                    
+                    document.getElementById('lforms-container').innerHTML = combinedHTML;
+                    
+                    // Render each questionnaire in its section
+                    data.combinedQuestionnaires.forEach((qrData, index) => {
+                        try {
+                            const formDef = LForms.Util.convertFHIRQuestionnaireToLForms(qrData.questionnaire, "R4");
+                            
+                            // Process the response data
+                            if (qrData.questionnaireResponse && qrData.questionnaireResponse.item) {
+                                qrData.questionnaireResponse.item = sanitizeResponse(
+                                    qrData.questionnaire.item, 
+                                    qrData.questionnaireResponse.item
+                                );
+                                
+                                normalizeAnswers(
+                                    qrData.questionnaire.item,
+                                    qrData.questionnaireResponse.item
+                                );
+                            }
+                            
+                            const formWithData = LForms.Util.mergeFHIRDataIntoLForms(
+                                "QuestionnaireResponse", 
+                                qrData.questionnaireResponse, 
+                                formDef, 
+                                "R4"
+                            );
+                            
+                            LForms.Util.addFormToPage(formWithData, `lforms-section-${index}`, { preloading: false });
+                        } catch (e) {
+                            console.error(`Error rendering questionnaire ${index + 1}:`, e);
+                        }
+                    });
+                } else {
+                    // Single questionnaire - original behavior
+                    const formDef = LForms.Util.convertFHIRQuestionnaireToLForms(data.questionnaire, "R4");
+                    
+                    if (data.questionnaireResponse && data.questionnaireResponse.item) {
+                        data.questionnaireResponse.item = sanitizeResponse(
+                            data.questionnaire.item, 
+                            data.questionnaireResponse.item
+                        );
+                        
+                        normalizeAnswers(
+                            data.questionnaire.item,
+                            data.questionnaireResponse.item
+                        );
+                    }
 
-                const formWithData = LForms.Util.mergeFHIRDataIntoLForms("QuestionnaireResponse", data.questionnaireResponse, formDef, "R4");
-                LForms.Util.addFormToPage(formWithData, 'lforms-container', { preloading: false });
+                    const formWithData = LForms.Util.mergeFHIRDataIntoLForms("QuestionnaireResponse", data.questionnaireResponse, formDef, "R4");
+                    LForms.Util.addFormToPage(formWithData, 'lforms-container', { preloading: false });
+                }
 
             } catch (e) {
                 var msg = e.toString();

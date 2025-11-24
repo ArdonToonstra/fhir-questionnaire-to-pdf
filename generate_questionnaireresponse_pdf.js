@@ -139,7 +139,8 @@ function normalizeFHIRData(jsonData) {
                 continue;
             }
 
-            // Process each QuestionnaireResponse separately
+            // Prepare combined data with all QRs and their questionnaires
+            const combinedQRData = [];
             for (let i = 0; i < processedData.questionnaireResponses.length; i++) {
                 const currentQR = processedData.questionnaireResponses[i];
                 log(`  Processing QR ${i + 1}/${processedData.questionnaireResponses.length}: ${currentQR.questionnaire}`, 'INFO');
@@ -156,52 +157,49 @@ function normalizeFHIRData(jsonData) {
                     questionnaire = { resourceType: "Questionnaire", status: "active", item: [] };
                 }
 
-                // Create processed data for this specific QR
-                const qrSpecificData = {
-                    ...processedData,
+                combinedQRData.push({
                     questionnaireResponse: currentQR,
-                    questionnaire: questionnaire
-                };
-
-                await page.goto(`file://${TEMPLATE_PATH}`, { waitUntil: 'domcontentloaded' });
-                
-                await page.addStyleTag({ path: path.join(ASSETS_DIR, 'lhc-forms.css') });
-                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'zone.min.js') });
-                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lhc-forms.js') });
-                await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lformsFHIR.min.js') });
-
-                try { await page.waitForFunction(() => window.LForms, { timeout: 3000 }); } catch (e) {}
-
-                await page.evaluate((data) => { window.renderFromData(data); }, qrSpecificData);
-
-                try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
-                catch (e) { log("  Render timeout.", 'ERROR'); continue; }
-
-                // Generate unique filename for each QR
-                let outName = file.replace('.json', '');
-                // Clean up the filename: replace invalid characters with dashes, convert to lowercase
-                outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
-                // Remove multiple consecutive dashes and trim
-                outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-                
-                // Add QR suffix if multiple QRs exist
-                if (processedData.questionnaireResponses.length > 1) {
-                    // Try to use questionnaire name for better identification
-                    const qName = currentQR.questionnaire ? 
-                        currentQR.questionnaire.split('/').pop().split('|')[0].toLowerCase() : 
-                        `qr${i + 1}`;
-                    outName = `${outName}-${qName.replace(/[^a-zA-Z0-9\-_]/g, '-')}`;
-                }
-                
-                await page.pdf({
-                    path: path.join(OUTPUT_DIR, `${outName}.pdf`),
-                    format: 'A4',
-                    printBackground: true,
-                    margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+                    questionnaire: questionnaire,
+                    title: questionnaire.title || currentQR.questionnaire?.split('/').pop().split('|')[0] || `Questionnaire ${i + 1}`
                 });
-
-                log(`  Saved: ${outName}.pdf`, 'SUCCESS');
             }
+
+            // Create combined data structure
+            const combinedData = {
+                ...processedData,
+                combinedQuestionnaires: combinedQRData,
+                isMultipleQR: combinedQRData.length > 1
+            };
+
+            await page.goto(`file://${TEMPLATE_PATH}`, { waitUntil: 'domcontentloaded' });
+            
+            await page.addStyleTag({ path: path.join(ASSETS_DIR, 'lhc-forms.css') });
+            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'zone.min.js') });
+            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lhc-forms.js') });
+            await page.addScriptTag({ path: path.join(ASSETS_DIR, 'lformsFHIR.min.js') });
+
+            try { await page.waitForFunction(() => window.LForms, { timeout: 3000 }); } catch (e) {}
+
+            await page.evaluate((data) => { window.renderFromData(data); }, combinedData);
+
+            try { await page.waitForSelector('#render-complete', { timeout: 15000 }); } 
+            catch (e) { log("Render timeout.", 'ERROR'); continue; }
+
+            // Generate filename
+            let outName = file.replace('.json', '');
+            // Clean up the filename: replace invalid characters with dashes, convert to lowercase
+            outName = outName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
+            // Remove multiple consecutive dashes and trim
+            outName = outName.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+            
+            await page.pdf({
+                path: path.join(OUTPUT_DIR, `${outName}.pdf`),
+                format: 'A4',
+                printBackground: true,
+                margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+            });
+
+            log(`Saved: ${outName}.pdf (${combinedQRData.length} questionnaire${combinedQRData.length > 1 ? 's' : ''})`, 'SUCCESS');
 
         } catch (error) {
             log(`System Error: ${error.message}`, 'ERROR');
