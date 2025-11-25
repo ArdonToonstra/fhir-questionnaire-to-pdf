@@ -176,12 +176,28 @@ function normalizeFHIRData(jsonData) {
     const page = await browser.newPage();
     
     page.on('console', async msg => {
-        if (msg.type() === 'error' || msg.type() === 'warning') {
-            const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => '')));
-            const text = args.length ? args.join(' ') : msg.text();
-            if (text.includes('LFORMS_CRASH')) log(`[CRASH] ${text.replace('LFORMS_CRASH:', '')}`, 'ERROR');
-            else if (text.includes('[Sanitizer Removed]')) log(`${text}`, 'WARN');
-            else if (text.includes('[Normalizer]')) log(`${text}`, 'INFO');
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => '')));
+        const text = args.length ? args.join(' ') : msg.text();
+        
+        // Capture all sanitizer and normalizer logs
+        if (text.includes('[Sanitizer]')) {
+            if (text.includes('REMOVED') || text.includes('✗')) {
+                log(text, 'WARN');
+            } else {
+                log(text, 'INFO');
+            }
+        } else if (text.includes('[Normalizer]')) {
+            if (text.includes('Warning') || text.includes('⚠')) {
+                log(text, 'WARN');
+            } else {
+                log(text, 'INFO');
+            }
+        } else if (text.includes('[Processing]')) {
+            log(text, 'INFO');
+        } else if (msg.type() === 'error' || msg.type() === 'warning') {
+            if (text.includes('LFORMS_CRASH')) {
+                log(`[CRASH] ${text.replace('LFORMS_CRASH:', '')}`, 'ERROR');
+            }
         }
     });
 

@@ -1,6 +1,8 @@
 # Questionnaire Response PDF
 
-This tool automates the generation of PDF medical reports from FHIR QuestionnaireResponses. It combines QuestionnaireResponses (patient answers) with Questionnaires (form definitions) to render professional, readable documents using the LHC-Forms library.
+This Node.js tool automates the generation of PDF medical reports from FHIR QuestionnaireResponses. It combines QuestionnaireResponses (patient answers) with Questionnaires (form definitions) to render professional, readable documents using the LHC-Forms library.
+
+Node.js is chosen because the core problem involves automating a browser (Puppeteer) to render a client-side JavaScript library (LForms). Using Node.js allows the orchestration script and the rendering environment to share the same language and data structures (JSON), eliminating serialization friction. Additionally, Node.js's native asynchronous I/O excels at the concurrent file processing required for batch PDF generation.
 
 ## Features
 
@@ -108,8 +110,9 @@ This script scans your `/questionnaires` folder, finds every `answerValueSet` re
 - **Smart Data Extraction**: Extracts patient info from Patient resources or falls back to QuestionnaireResponse subject data.
 - **CarePlan Integration**: Displays CarePlan categories with clinical codes in the report header.
 - **Enhanced Template**: Injects data and LForms library into a responsive template with improved text wrapping.
-- **Sanitizes Data**: Removes answers that don't exist in the definition to prevent crashes.
-- **Normalizes Data**: Fixes minor mismatches (like http vs https system URLs) so answers don't disappear.
+- **Sanitizes Data**: Removes answers that don't exist in the definition to prevent crashes (with detailed logging of removed items).
+- **Normalizes Data**: Fixes minor mismatches (like http vs https system URLs) so answers don't disappear (with comprehensive change tracking).
+- **Comprehensive Audit Logging**: Tracks every sanitization removal and normalization change for full transparency.
 - Prints the final rendered page as a PDF to `/output`.
 
 

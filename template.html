@@ -121,35 +121,79 @@
         };
 
         // --- 1. SANITIZER (Removes orphans to prevent Crash) ---
-        function sanitizeResponse(qItems, respItem) {
+        function sanitizeResponse(qItems, respItem, path = '') {
             if (!respItem) return null;
             if (!qItems) return null; 
             const validItems = [];
+            let removedCount = 0;
+            
             respItem.forEach(rItem => {
                 const def = qItems.find(q => q.linkId === rItem.linkId);
+                const currentPath = path ? `${path}.${rItem.linkId}` : rItem.linkId;
+                
                 if (def) {
+                    // Item has definition - process children if any
                     if (rItem.item && rItem.item.length > 0) {
-                        const cleanedChildren = sanitizeResponse(def.item, rItem.item);
-                        if (cleanedChildren && cleanedChildren.length > 0) rItem.item = cleanedChildren;
-                        else delete rItem.item; 
+                        const originalChildCount = rItem.item.length;
+                        const cleanedChildren = sanitizeResponse(def.item, rItem.item, currentPath);
+                        
+                        if (cleanedChildren && cleanedChildren.length > 0) {
+                            rItem.item = cleanedChildren;
+                            const removedChildCount = originalChildCount - cleanedChildren.length;
+                            if (removedChildCount > 0) {
+                                console.log(`[Sanitizer] Removed ${removedChildCount} orphaned child items from ${currentPath}`);
+                            }
+                        } else {
+                            console.log(`[Sanitizer] Removed all child items from ${currentPath} (no valid definitions found)`);
+                            delete rItem.item; 
+                        }
                     }
+                    
+                    // Log what we're keeping
+                    const answerCount = rItem.answer ? rItem.answer.length : 0;
+                    const answerText = rItem.answer ? 
+                        rItem.answer.map(a => {
+                            if (a.valueString) return `"${a.valueString}"`;
+                            if (a.valueCoding) return `${a.valueCoding.display || a.valueCoding.code}`;
+                            if (a.valueInteger !== undefined) return a.valueInteger;
+                            if (a.valueDecimal !== undefined) return a.valueDecimal;
+                            if (a.valueBoolean !== undefined) return a.valueBoolean;
+                            if (a.valueDate) return a.valueDate;
+                            return '[complex answer]';
+                        }).join(', ') : 'no answer';
+                    
+                    console.log(`[Sanitizer] ✓ Kept ${currentPath} (${answerCount} answers: ${answerText})`);
                     validItems.push(rItem);
+                } else {
+                    // Item has no definition - log removal
+                    const answerInfo = rItem.answer ? ` with ${rItem.answer.length} answers` : ' (no answers)';
+                    console.log(`[Sanitizer] ✗ REMOVED orphaned item: ${currentPath}${answerInfo} - no definition found`);
+                    removedCount++;
                 }
             });
+            
+            if (removedCount > 0) {
+                console.log(`[Sanitizer] Summary for ${path || 'root'}: Kept ${validItems.length}, Removed ${removedCount} orphaned items`);
+            }
+            
             return validItems;
         }
 
         // --- 2. NORMALIZER (Fixes Invisible Answers) ---
         // If code matches but system/display is different, assume it's the same answer.
-        function normalizeAnswers(qItems, respItem) {
+        function normalizeAnswers(qItems, respItem, path = '') {
             if (!respItem || !qItems) return;
+            
+            let totalNormalizations = 0;
 
             respItem.forEach(rItem => {
                 const def = qItems.find(q => q.linkId === rItem.linkId);
+                const currentPath = path ? `${path}.${rItem.linkId}` : rItem.linkId;
+                
                 if (def) {
                     // If Definition has options, check if our answer needs aligning
                     if (def.answerOption && rItem.answer) {
-                        rItem.answer.forEach(ans => {
+                        rItem.answer.forEach((ans, ansIndex) => {
                             if (ans.valueCoding) {
                                 // Find match in Definition options by CODE only
                                 const match = def.answerOption.find(opt => 
@@ -157,24 +201,58 @@
                                 );
                                 
                                 if (match) {
+                                    let changes = [];
+                                    
                                     // 1. Fix System Mismatch (e.g. http vs https)
                                     if (ans.valueCoding.system !== match.valueCoding.system) {
-                                        console.log(`[Normalizer] Fixed System: ${rItem.linkId} (${ans.valueCoding.system} -> ${match.valueCoding.system})`);
+                                        changes.push(`system: "${ans.valueCoding.system}" → "${match.valueCoding.system}"`);
                                         ans.valueCoding.system = match.valueCoding.system;
+                                        totalNormalizations++;
                                     }
+                                    
                                     // 2. Fix Missing/Different Display (Helps LForms render label)
-                                    if (match.valueCoding.display) {
+                                    if (match.valueCoding.display && ans.valueCoding.display !== match.valueCoding.display) {
+                                        changes.push(`display: "${ans.valueCoding.display || '(missing)'}" → "${match.valueCoding.display}"`);
                                         ans.valueCoding.display = match.valueCoding.display;
+                                        totalNormalizations++;
                                     }
+                                    
+                                    if (changes.length > 0) {
+                                        console.log(`[Normalizer] ✓ Fixed answer ${ansIndex + 1} for ${currentPath} [code: ${ans.valueCoding.code}]: ${changes.join(', ')}`);
+                                    }
+                                } else if (ans.valueCoding.code) {
+                                    // Code exists in answer but not in definition options - potential issue
+                                    console.log(`[Normalizer] ⚠ Warning: Answer code "${ans.valueCoding.code}" for ${currentPath} not found in definition options - may not display correctly`);
                                 }
                             }
                         });
+                        
+                        // Log summary for this item
+                        if (rItem.answer.length > 0) {
+                            const answersDescription = rItem.answer.map(ans => {
+                                if (ans.valueCoding) return `${ans.valueCoding.display || ans.valueCoding.code}`;
+                                if (ans.valueString) return `"${ans.valueString}"`;
+                                return '[other]';
+                            }).join(', ');
+                            console.log(`[Normalizer] Processed ${currentPath}: ${rItem.answer.length} answers (${answersDescription})`);
+                        }
+                    } else if (rItem.answer && rItem.answer.length > 0) {
+                        // Item has answers but no definition options to normalize against
+                        console.log(`[Normalizer] Skipped ${currentPath}: has ${rItem.answer.length} answers but no definition answerOptions to validate against`);
                     }
 
                     // Recurse
-                    if (rItem.item) normalizeAnswers(def.item, rItem.item);
+                    if (rItem.item) {
+                        totalNormalizations += normalizeAnswers(def.item, rItem.item, currentPath);
+                    }
                 }
             });
+            
+            if (path === '' && totalNormalizations > 0) {
+                console.log(`[Normalizer] Summary: Applied ${totalNormalizations} normalizations to ensure answer compatibility`);
+            }
+            
+            return totalNormalizations;
         }
 
         function renderFromData(data) {
@@ -262,6 +340,8 @@
                             
                             // Process the response data
                             if (qrData.questionnaireResponse && qrData.questionnaireResponse.item) {
+                                console.log(`[Processing] Starting data sanitization and normalization for questionnaire ${index + 1}: ${qrData.title}`);
+                                
                                 qrData.questionnaireResponse.item = sanitizeResponse(
                                     qrData.questionnaire.item, 
                                     qrData.questionnaireResponse.item
@@ -290,6 +370,8 @@
                     const formDef = LForms.Util.convertFHIRQuestionnaireToLForms(data.questionnaire, "R4");
                     
                     if (data.questionnaireResponse && data.questionnaireResponse.item) {
+                        console.log(`[Processing] Starting data sanitization and normalization for single questionnaire`);
+                        
                         data.questionnaireResponse.item = sanitizeResponse(
                             data.questionnaire.item, 
                             data.questionnaireResponse.item
